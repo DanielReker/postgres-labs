@@ -6,7 +6,7 @@ services:
     environment:
       - POSTGRES_PASSWORD=123
     volumes:
-      - ./data:/var/lib/postgresql/data
+      - db-data:/var/lib/postgresql/data
     ports:
       - 5432:5432
 
@@ -21,5 +21,9 @@ services:
       - PGADMIN_DEFAULT_PASSWORD=123
       - PGADMIN_CONFIG_ENABLE_PSQL=True
     volumes:
-      - ./pgadmin:/var/lib/pgadmin
+      - pgadmin-data:/var/lib/pgadmin
+
+volumes:
+  db-data:
+  pgadmin-data:
     
