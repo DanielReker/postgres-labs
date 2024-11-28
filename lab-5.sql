@@ -208,5 +208,242 @@ SELECT * FROM aircrafts_tmp;
 
 -- Задание 1
 
+-- Можем предположить, что две строки ('ABC', NULL) и ('ABC', NULL) допустимы при уникальном индексе, поскольку все значения NULL считаются отличными друг от друга, а следовательно и кортежи, содержащие NULL, также будут считаться различными. Проверим это предположение на практике:
 
+DROP TABLE IF EXISTS test_table;
+CREATE TABLE test_table (
+	column1 text,
+	column2 text
+);
+
+CREATE UNIQUE INDEX
+	ON test_table ( column1, column2 );
+
+INSERT INTO test_table ( column1, column2 ) VALUES ( 'ABC', NULL );
+INSERT INTO test_table ( column1, column2 ) VALUES ( 'ABC', NULL );
+
+INSERT INTO test_table ( column1, column2 ) VALUES ( 'ABC', 'DEF' );
+-- INSERT INTO test_table ( column1, column2 ) VALUES ( 'ABC', 'DEF' ); -- Ошибка
+
+SELECT * FROM test_table;
+
+--  column1 | column2 
+-- ---------+---------
+--  ABC     | 
+--  ABC     | 
+--  ABC     | DEF
+
+-- Действительно, наше предположение оказалось верным.
+
+
+
+-- Задание 2
+
+SELECT count( * )
+    FROM tickets
+    WHERE passenger_name = 'IVAN IVANOV';
+
+-- Time: 61.594 ms
+-- Time: 13.982 ms
+-- Time: 12.956 ms
+-- Time: 13.084 ms
+-- Time: 11.010 ms
+
+CREATE INDEX
+    ON tickets ( passenger_name );
+
+-- Time: 1.120 ms
+-- Time: 0.405 ms
+-- Time: 0.616 ms
+-- Time: 0.378 ms
+-- Time: 0.596 ms
+
+-- Как видим, первый запрос всегда выполняется дольше, чем все такие же последующие, причём как при наличии индекса, так и при его отсутствии. Это может быть связано с тем, что СУБД некоторым образом кеширует запросы после первого выполнения, и дальше использует этот кеш для выдачи последующих ответов на такой же запрос.
+
+DROP INDEX tickets_passenger_name_idx;
+
+
+
+-- Задание 3
+
+SELECT count( * )
+FROM ticket_flights
+WHERE fare_conditions = 'Comfort';
+
+-- Time: 25.739 ms
+-- Time: 24.012 ms
+-- Time: 26.576 ms
+-- Time: 25.831 ms
+-- Average: 25.5395 ms
+
+SELECT count( * )
+FROM ticket_flights
+WHERE fare_conditions = 'Business';
+
+-- Time: 32.673 ms
+-- Time: 23.588 ms
+-- Time: 24.572 ms
+-- Time: 28.134 ms
+-- Time: 34.452 ms
+-- Average: 28.6838 ms
+
+SELECT count( * )
+FROM ticket_flights
+WHERE fare_conditions = 'Economy';
+
+-- Time: 33.282 ms
+-- Time: 25.655 ms
+-- Time: 28.916 ms
+-- Time: 30.711 ms
+-- Time: 31.301 ms
+-- Average: 29.973 ms
+
+
+CREATE INDEX
+    ON ticket_flights ( fare_conditions );
+
+SELECT count( * )
+FROM ticket_flights
+WHERE fare_conditions = 'Comfort';
+
+-- Time: 1.718 ms
+-- Time: 1.134 ms
+-- Time: 0.958 ms
+-- Time: 0.939 ms
+-- Time: 1.272 ms
+-- Average: 1.2042 ms
+
+SELECT count( * )
+FROM ticket_flights
+WHERE fare_conditions = 'Business';
+
+-- Time: 5.798 ms
+-- Time: 4.302 ms
+-- Time: 4.427 ms
+-- Time: 4.404 ms
+-- Time: 4.295 ms
+-- Average: 4.6452 ms
+
+SELECT count( * )
+FROM ticket_flights
+WHERE fare_conditions = 'Economy';
+
+-- Time: 22.267 ms
+-- Time: 25.814 ms
+-- Time: 16.429 ms
+-- Time: 18.118 ms
+-- Time: 16.732 ms
+-- Average: 19.872 ms
+
+-- Можем заметить, что без индекса время подсчёта количество строк с каждым значением примерно совпадает и равняется примерно 25-30 мс, а при наличии индекса, во-первых, время запроса пропорционально количеству подсчитанных строк с искомым значением fare_conditions, а во-вторых, времена трёх запросов для каждого значения fare_conditions в сумме дают как раз около 25 мс, то есть среднее время запроса без индекса. Из этого можем сделать вывод, что без индекса при подсчёте перебираются все строки таблицы, а при наличии индекса - только те, которые имеют соответствующее значение fare_conditions (они быстро отбираются благодаря наличию индекса по fare_conditions).
+
+DROP INDEX ticket_flights_fare_conditions_idx;
+
+
+
+-- Задание 4
+
+CREATE INDEX
+	ON ticket_flights ( flight_id DESC NULLS FIRST, amount ASC NULLS LAST );
+-- При обратном сканировании: flight_id ASC NULLS LAST, amount DESC NULLS FIRST
+
+-- Можем предположить, что при использовании ORDER BY запросы ускорятся лишь при таком же порядке, как и в индексе (flight_id DESC NULLS FIRST, amount ASC NULLS LAST), а также при обратном порядке (flight_id ASC NULLS LAST, amount DESC NULLS FIRST), поскольку индекс также можно читать в обратном порядке. Проверим это предположение на практике:
+
+SELECT count( * )
+    FROM ticket_flights
+    ORDER BY flight_id DESC NULLS FIRST, amount ASC NULLS LAST;
+
+-- Time: 0.391 ms
+-- Time: 0.402 ms
+-- Time: 0.247 ms
+
+SELECT count( * )
+    FROM ticket_flights
+    ORDER BY flight_id ASC NULLS LAST, amount DESC NULLS FIRST;
+
+-- Time: 0.266 ms
+-- Time: 0.241 ms
+-- Time: 0.235 ms
+
+SELECT count( * )
+    FROM ticket_flights
+    ORDER BY flight_id ASC NULLS LAST, amount ASC NULLS FIRST;
+
+-- Time: 0.626 ms
+-- Time: 0.493 ms
+-- Time: 0.245 ms
+
+SELECT count( * )
+    FROM ticket_flights
+    ORDER BY flight_id DESC NULLS LAST, amount DESC NULLS FIRST;
+
+-- Time: 0.532 ms
+-- Time: 0.370 ms
+-- Time: 0.234 ms
+
+DROP INDEX ticket_flights_flight_id_amount_idx;
+
+-- Time: 0.493 ms
+-- Time: 0.359 ms
+-- Time: 0.237 ms
+
+-- Действительно, заметно ускорились только указанные запросы.
+
+
+
+-- Задание 5
+
+-- Таблица flights, аэропорты отправления и прибытия
+
+-- Вариант 1 (если чаще приходится фильтровать/сортировать выборки по конкретному аэропорту прибытия или отправления):
+CREATE INDEX
+    ON flights ( departure_airport )
+CREATE INDEX
+    ON flights ( arrival_airport )
+
+-- Вариант 2 (если чаще приходится фильтровать/сортировать выборки по паре аэропорта отправления и прибытия - например, при поиске маршрутов):
+CREATE INDEX
+    ON flights ( departure_airport. arrival_airport )
+
+-- Вариант 3 (если одинаково часто приходится фильтровать/сортировать выборки как по конкретному аэропорту прибытия или отправления, так и по их парам):
+CREATE INDEX
+    ON flights ( departure_airport )
+CREATE INDEX
+    ON flights ( arrival_airport )
+CREATE INDEX
+    ON flights ( departure_airport. arrival_airport )
+
+
+
+-- Задание 6
+
+-- Если понадобится часто находить полёты с наибольшими отклонениями от графика:
+
+CREATE INDEX
+    ON flights ( actual_departure - scheduled_departure );
+
+CREATE INDEX
+    ON flights ( actual_arrival - scheduled_arrival );
+
+
+
+-- Задание 7*
+--===========
+
+
+
+-- Задание 8*
+--===========
+
+
+
+-- Задание 9
+
+-- Подходит для использования с шаблонами LIKE или регулярными выражениями POSIX, если в системе с СУБД используются настройки локализации, отличные от "C"
+CREATE INDEX tickets_pass_name
+    ON tickets ( passenger_name text_pattern_ops );
+
+-- Подходит для обычных сравнений <, <=, > или >=
+CREATE INDEX tickets_pass_name
+    ON tickets ( passenger_name );
 
