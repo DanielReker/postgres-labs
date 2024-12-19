@@ -172,8 +172,52 @@ SELECT * FROM catalog_v;
 
 -- Задание 1
 
+INSERT INTO authors (last_name, first_name, middle_name) VALUES
+	('Пушкин', 'Александр', 'Сергеевич'),
+	('Пушкин', 'Александр', 'Сергеевич'),
+	('Свифт', 'Джонатан', NULL);
+
+
+DROP PROCEDURE IF EXISTS delete_duplicated_authors;
+CREATE PROCEDURE delete_duplicated_authors()
+LANGUAGE sql
+BEGIN ATOMIC
+	WITH a_dups AS (
+		SELECT
+			author_id,
+			row_number() OVER (
+				PARTITION BY last_name, first_name, middle_name
+				ORDER BY author_id
+			) AS row_num
+		FROM authors
+	)
+	DELETE FROM authors a USING a_dups
+	WHERE a.author_id = a_dups.author_id AND a_dups.row_num > 1;
+END;
+
+CALL delete_duplicated_authors();
+
+SELECT * FROM authors;
+--  author_id | last_name  | first_name | middle_name 
+-- -----------+------------+------------+-------------
+--          1 | Пушкин     | Александр  | Сергеевич
+--          2 | Тургенев   | Иван       | Сергеевич
+--          3 | Стругацкий | Борис      | Натанович
+--          4 | Стругацкий | Аркадий    | Натанович
+--          5 | Толстой    | Лев        | Николаевич
+--          6 | Свифт      | Джонатан   | 
+
 
 -- Задание 2
+
+ALTER TABLE authors
+ADD UNIQUE NULLS NOT DISTINCT (last_name, first_name, middle_name); 
+
+INSERT INTO authors (last_name, first_name, middle_name) VALUES
+	('Тургенев', 'Иван', 'Сергеевич'); -- ошибка
+
+INSERT INTO authors (last_name, first_name, middle_name) VALUES
+	('Свифт', 'Джонатан', NULL); -- ошибка
 
 
 
