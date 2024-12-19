@@ -4,10 +4,6 @@
 
 -- Создание БД (из Dev1_07)
 
-CREATE DATABASE bookstore;
-
-
-
 
 DROP TABLE IF EXISTS authors CASCADE;
 DROP TABLE IF EXISTS books CASCADE;
@@ -213,11 +209,11 @@ SELECT * FROM authors;
 ALTER TABLE authors
 ADD UNIQUE NULLS NOT DISTINCT (last_name, first_name, middle_name); 
 
-INSERT INTO authors (last_name, first_name, middle_name) VALUES
-	('Тургенев', 'Иван', 'Сергеевич'); -- ошибка
+-- INSERT INTO authors (last_name, first_name, middle_name) VALUES
+-- 	('Тургенев', 'Иван', 'Сергеевич'); -- ошибка
 
-INSERT INTO authors (last_name, first_name, middle_name) VALUES
-	('Свифт', 'Джонатан', NULL); -- ошибка
+-- INSERT INTO authors (last_name, first_name, middle_name) VALUES
+-- 	('Свифт', 'Джонатан', NULL); -- ошибка
 
 
 
@@ -226,6 +222,144 @@ INSERT INTO authors (last_name, first_name, middle_name) VALUES
 
 -- Задание 1
 
+DROP FUNCTION IF EXISTS onhand_qty;
+CREATE FUNCTION onhand_qty(book books) RETURNS integer
+STABLE LANGUAGE sql
+BEGIN ATOMIC
+    SELECT coalesce(sum(o.qty_change),0)::integer
+    FROM operations o
+    WHERE o.book_id = book.book_id;
+END;
+
+DROP VIEW IF EXISTS catalog_v;
+CREATE VIEW catalog_v AS
+SELECT b.book_id,
+       book_name(b.book_id, b.title) AS display_name,
+       b.onhand_qty
+FROM   books b
+ORDER BY display_name;
+
+
+DROP FUNCTION IF EXISTS update_catalog_v CASCADE;
+CREATE FUNCTION update_catalog_v() RETURNS trigger
+AS $$
+BEGIN
+	INSERT INTO operations (book_id, qty_change)
+		VALUES (OLD.book_id, NEW.onhand_qty - OLD.onhand_qty);
+	RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER catalog_v_upd_trigger
+INSTEAD OF UPDATE ON catalog_v
+FOR EACH ROW EXECUTE FUNCTION update_catalog_v();
+
+UPDATE catalog_v SET onhand_qty = 10;
+UPDATE catalog_v SET onhand_qty = 5 WHERE display_name ~ 'Пушкин';
+
+SELECT * FROM catalog_v;
+--  book_id |                                                                            display_name                                                                             | onhand_qty 
+-- ---------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------
+--        4 | Война и мир (Толстой Лев Николаевич)                                                                                                                                |         10
+--        7 | Книга без авторов                                                                                                                                                   |         10
+--        2 | Муму (Тургенев Иван Сергеевич)                                                                                                                                      |         10
+--        5 | Путешествия в некоторые удаленные страны мира в четырех частях: сочинение Лемюэля Гулливера, сначала хирурга, а затем капитана нескольких кораблей (Свифт Джонатан) |         10
+--        1 | Сказка о царе Салтане (Пушкин Александр Сергеевич)                                                                                                                  |          5
+--        3 | Трудно быть богом (Стругацкий Борис Натанович, Стругацкий Аркадий Натанович)                                                                                        |         10
+--        6 | Хрестоматия (Пушкин Александр Сергеевич, Тургенев Иван Сергеевич, Толстой Лев Николаевич)                                                                           |          5
+
+SELECT * FROM operations_v;
+--  book_id |   op_type   | qty_change | date_created 
+-- ---------+-------------+------------+--------------
+--        1 | Поступление |         10 | 19.12.2024
+--        1 | Поступление |         10 | 19.12.2024
+--        1 | Покупка     |          1 | 19.12.2024
+--        4 | Поступление |         10 | 19.12.2024
+--        7 | Поступление |         10 | 19.12.2024
+--        2 | Поступление |         10 | 19.12.2024
+--        5 | Поступление |         10 | 19.12.2024
+--        1 | Покупка     |          9 | 19.12.2024
+--        3 | Поступление |         10 | 19.12.2024
+--        6 | Поступление |         10 | 19.12.2024
+--        1 | Покупка     |          5 | 19.12.2024
+--        6 | Покупка     |          5 | 19.12.2024
+
 
 -- Задание 2
 
+BEGIN;
+
+DROP VIEW IF EXISTS catalog_v;
+LOCK TABLE books IN EXCLUSIVE MODE;
+LOCK TABLE operations IN EXCLUSIVE MODE;
+
+ALTER TABLE books
+	ADD COLUMN onhand_qty integer;
+UPDATE books SET onhand_qty = onhand_qty(books);
+
+DROP FUNCTION IF EXISTS onhand_qty;
+
+ALTER TABLE books
+    ADD CHECK (onhand_qty >= 0);
+ALTER TABLE books
+	ALTER COLUMN onhand_qty SET NOT NULL;
+ALTER TABLE books
+	ALTER COLUMN onhand_qty SET DEFAULT 0;
+
+CREATE VIEW catalog_v AS
+SELECT b.book_id,
+       book_name(b.book_id, b.title) AS display_name,
+       b.onhand_qty
+FROM   books b
+ORDER BY display_name;
+
+
+DROP FUNCTION IF EXISTS update_onhand_qty CASCADE;
+CREATE FUNCTION update_onhand_qty() RETURNS trigger
+AS $$
+BEGIN
+	UPDATE books
+	SET onhand_qty = onhand_qty + NEW.qty_change
+	WHERE book_id = NEW.book_id;
+	RETURN NULL;
+END
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_onhand_qty_trigger
+AFTER INSERT ON operations
+FOR EACH ROW
+EXECUTE FUNCTION update_onhand_qty();
+
+
+COMMIT;
+
+SELECT * FROM books;
+--  book_id |                                                                       title                                                                        | onhand_qty 
+-- ---------+----------------------------------------------------------------------------------------------------------------------------------------------------+------------
+--        1 | Сказка о царе Салтане                                                                                                                              |          5
+--        2 | Муму                                                                                                                                               |         10
+--        3 | Трудно быть богом                                                                                                                                  |         10
+--        4 | Война и мир                                                                                                                                        |         10
+--        5 | Путешествия в некоторые удаленные страны мира в четырех частях: сочинение Лемюэля Гулливера, сначала хирурга, а затем капитана нескольких кораблей |         10
+--        6 | Хрестоматия                                                                                                                                        |          5
+--        7 | Книга без авторов                                                                                                                                  |         10
+
+INSERT INTO operations (book_id, qty_change) VALUES
+	(4, -8),
+	(5, 7);
+
+--INSERT INTO operations (book_id, qty_change) VALUES (1, -100);
+--ERROR:  Failing row contains (1, Сказка о царе Салтане, -95).new row for relation "books" violates check constraint "books_onhand_qty_check" 
+--
+--ERROR:  new row for relation "books" violates check constraint "books_onhand_qty_check"
+
+SELECT * FROM books;
+--  book_id |                                                                       title                                                                        | onhand_qty 
+-- ---------+----------------------------------------------------------------------------------------------------------------------------------------------------+------------
+--        1 | Сказка о царе Салтане                                                                                                                              |          5
+--        2 | Муму                                                                                                                                               |         10
+--        3 | Трудно быть богом                                                                                                                                  |         10
+--        6 | Хрестоматия                                                                                                                                        |          5
+--        7 | Книга без авторов                                                                                                                                  |         10
+--        4 | Война и мир                                                                                                                                        |          2
+--        5 | Путешествия в некоторые удаленные страны мира в четырех частях: сочинение Лемюэля Гулливера, сначала хирурга, а затем капитана нескольких кораблей |         17
